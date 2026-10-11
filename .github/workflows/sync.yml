@@ -1,4 +1,4 @@
-name: Sync Graphify
+name: Sync plugins
 
 on:
   schedule:
@@ -13,15 +13,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Copiar última versión
+      - name: Copiar última versión de graphify
         run: ./scripts/sync.sh
+      - name: Copiar última versión de context-mode
+        run: ./scripts/sync-context-mode.sh
       - name: Commit si hay cambios
         run: |
           if [ -n "$(git status --porcelain)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
             git add -A
-            git commit -m "sync: graphify $(jq -r .version plugins/graphify/.claude-plugin/plugin.json)"
+            git commit -m "sync: graphify $(jq -r .version plugins/graphify/.claude-plugin/plugin.json), context-mode $(jq -r .version plugins/context-mode/.claude-plugin/plugin.json)"
             git push
           else
             echo "Sin cambios"

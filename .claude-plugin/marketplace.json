@@ -1,11 +1,18 @@
 {
   "name": "diego-plugins",
-  "owner": { "name": "Diego" },
+  "owner": {
+    "name": "Diego"
+  },
   "plugins": [
     {
       "name": "graphify",
       "source": "./plugins/graphify",
       "description": "Convierte cualquier carpeta (código, docs, PDFs, imágenes) en un grafo de conocimiento consultable. Sincronizado cada semana desde Graphify-Labs/graphify."
+    },
+    {
+      "name": "context-mode",
+      "source": "./plugins/context-mode",
+      "description": "Optimiza la ventana de contexto (MCP + hooks). Copia semanal de mksglu/context-mode sin bin/. Licencia Elastic-2.0."
     }
   ]
 }

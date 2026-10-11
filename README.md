@@ -7,3 +7,7 @@ Marketplace de Claude con el plugin **graphify** ([Graphify-Labs/graphify](https
 - Sincronizar a mano: pestaña **Actions → Sync Graphify → Run workflow**.
 
 Contenido de la skill: © Graphify-Labs, licencia MIT (ver `LICENSE-UPSTREAM`).
+
+## context-mode
+
+También incluye **context-mode** ([mksglu/context-mode](https://github.com/mksglu/context-mode)), copiado cada semana sin la carpeta `bin/` (solo tenía la statusline y claude.ai rechaza plugins con `bin/`). Licencia Elastic-2.0 (ver `plugins/context-mode/LICENSE`).
