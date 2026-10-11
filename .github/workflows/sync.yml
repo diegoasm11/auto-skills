@@ -1,0 +1,28 @@
+name: Sync Graphify
+
+on:
+  schedule:
+    - cron: "17 11 * * *"   # diario, 6:17 a. m. hora Bogotá
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copiar última versión
+        run: ./scripts/sync.sh
+      - name: Commit si hay cambios
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "sync: graphify $(jq -r .version plugins/graphify/.claude-plugin/plugin.json)"
+            git push
+          else
+            echo "Sin cambios"
+          fi

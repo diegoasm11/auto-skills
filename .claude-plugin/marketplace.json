@@ -1,0 +1,11 @@
+{
+  "name": "diego-plugins",
+  "owner": { "name": "Diego" },
+  "plugins": [
+    {
+      "name": "graphify",
+      "source": "./plugins/graphify",
+      "description": "Convierte cualquier carpeta (código, docs, PDFs, imágenes) en un grafo de conocimiento consultable. Sincronizado a diario desde Graphify-Labs/graphify."
+    }
+  ]
+}
