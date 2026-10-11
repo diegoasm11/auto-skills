@@ -5,7 +5,7 @@
     {
       "name": "graphify",
       "source": "./plugins/graphify",
-      "description": "Convierte cualquier carpeta (código, docs, PDFs, imágenes) en un grafo de conocimiento consultable. Sincronizado a diario desde Graphify-Labs/graphify."
+      "description": "Convierte cualquier carpeta (código, docs, PDFs, imágenes) en un grafo de conocimiento consultable. Sincronizado cada semana desde Graphify-Labs/graphify."
     }
   ]
 }

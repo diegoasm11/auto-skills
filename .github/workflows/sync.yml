@@ -2,7 +2,7 @@ name: Sync Graphify
 
 on:
   schedule:
-    - cron: "17 11 * * *"   # diario, 6:17 a. m. hora Bogotá
+    - cron: "17 11 * * 1"   # semanal: lunes 6:17 a. m. hora Bogotá
   workflow_dispatch:
 
 permissions:

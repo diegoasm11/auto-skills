@@ -1,6 +1,6 @@
 # graphify-plugin
 
-Marketplace de Claude con el plugin **graphify** ([Graphify-Labs/graphify](https://github.com/Graphify-Labs/graphify)), sincronizado a diario con GitHub Actions.
+Marketplace de Claude con el plugin **graphify** ([Graphify-Labs/graphify](https://github.com/Graphify-Labs/graphify)), sincronizado cada semana con GitHub Actions.
 
 - Agregar en Claude: marketplace `diegoasm11/graphify-plugin` → instalar **graphify**.
 - Python requerido en la sesión: `pip install -U graphifyy`
