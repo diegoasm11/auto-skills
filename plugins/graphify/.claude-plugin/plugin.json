@@ -1,7 +1,7 @@
 {
   "name": "graphify",
-  "version": "0.9.92",
-  "description": "Grafo de conocimiento de cualquier carpeta con /graphify (upstream: Graphify-Labs/graphify v0.9.92). Requiere: pip install graphifyy",
+  "version": "0.9.96",
+  "description": "Grafo de conocimiento de cualquier carpeta con /graphify (upstream: Graphify-Labs/graphify v0.9.96). Requiere: pip install graphifyy",
   "homepage": "https://github.com/Graphify-Labs/graphify",
   "license": "MIT"
 }
