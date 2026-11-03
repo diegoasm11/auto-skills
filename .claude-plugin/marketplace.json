@@ -13,6 +13,11 @@
       "name": "context-mode",
       "source": "./plugins/context-mode",
       "description": "Optimiza la ventana de contexto (MCP + hooks). Copia semanal de mksglu/context-mode sin bin/. Licencia Elastic-2.0."
+    },
+    {
+      "name": "hyperframes",
+      "source": "./plugins/hyperframes",
+      "description": "HyperFrames de HeyGen: escribe HTML y renderiza video con agentes. Copia semanal de heygen-com/hyperframes (solo skills). Licencia Apache-2.0."
     }
   ]
 }
