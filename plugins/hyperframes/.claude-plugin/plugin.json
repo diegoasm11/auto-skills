@@ -1,7 +1,7 @@
 {
   "name": "hyperframes",
-  "version": "0.9.6",
-  "description": "HyperFrames by HeyGen: escribe HTML, renderiza video (upstream: heygen-com/hyperframes v0.9.6). Requiere: npx hyperframes",
+  "version": "0.9.26",
+  "description": "HyperFrames by HeyGen: escribe HTML, renderiza video (upstream: heygen-com/hyperframes v0.9.26). Requiere: npx hyperframes",
   "homepage": "https://hyperframes.heygen.com",
   "license": "Apache-2.0"
 }
