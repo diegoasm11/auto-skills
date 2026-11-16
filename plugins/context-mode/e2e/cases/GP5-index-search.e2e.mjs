@@ -512,7 +512,13 @@ test("[M2] GP5/search-param-schema-match", async () => {
     offset: { queries: ["x"], offset: 20 },
     sort: { queries: ["x"], sort: "timeline" },
     after: { queries: ["x"], sort: "timeline", after: 1 },
+    // #1354: a whole-schema client fills both cursors with 0; 0 is the first page, not paging.
+    zeroTimeline: { queries: ["x"], sort: "timeline", offset: 0, after: 0 },
+    zeroRelevance: { queries: ["x"], offset: 0, after: 0 },
   };
+  // #1390: an explicit source that names no stored source is a fixable input (isError:true), so
+  // store "note" first; this test checks that the schema and the handler agree on valid input.
+  await withClient((c) => c.request("tools/call", { name: "ctx_index", arguments: { content: "x marks the note", source: "note" } }));
   const results = {};
   for (const [key, input] of Object.entries(valid)) {
     const reply = await withClient((c) => c.request("tools/call", { name: "ctx_search", arguments: input }));
@@ -674,8 +680,9 @@ test("[M4] GP5/timeline-repeat-and-session-scope", async () => {
 
 test("[M4] GP5/timeline-offset-relevance-after-invalid-args", async () => {
   const out = await twoSessions(async ({ a }) => ({
-    offset: await a("ctx_search", { queries: [], sort: "timeline", offset: 0 }),
-    after: await a("ctx_search", { queries: ["x"], after: 0 }),
+    // Real cursors: 0 is the first page and is accepted (#1354, D-R54-SEARCH-ZERO-1).
+    offset: await a("ctx_search", { queries: [], sort: "timeline", offset: 20 }),
+    after: await a("ctx_search", { queries: ["x"], after: 1700000000 }),
   }));
   assert.equal(out.offset.isError, true);
   assert.equal(out.after.isError, true);

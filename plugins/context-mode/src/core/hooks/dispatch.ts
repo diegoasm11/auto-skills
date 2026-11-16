@@ -9,7 +9,7 @@ import {
   COMPACTED_META_PREFIX, COMPACT_POINTER_LINE, COMPACT_STATE_KEY, DECISION_OPTION_KEY, DECISION_SOURCE, DECISION_TOOL, EDIT_PATH_KEYS, EDIT_TOOLS, EXIT_CODE_LINE_PREFIX,
   OWN_TOOL_PREFIX, prefixToolNames, REPLACE_CHUNK_BYTES, REPLACE_HANDLE_LINE, REPLACE_RETURN_BYTES, REPLACE_TRIGGER_BYTES, RANGE_READ_TOOLS, READ_PATH_KEYS, READ_RANGE_KEYS, SHAPE_RETURN_BYTES, PARSE_ERROR_DENY_LINE, PENDING_COMPACT_FLAG, PENDING_COMPACT_KEY,
   PENDING_COMPACT_META_PREFIX, POLICY_UNREADABLE_LINE, RECALL_KEY, RECALL_MAX_ROWS, RECALL_SEEN_META_PREFIX, RECALL_UNIT_CANDIDATES, RECALL_UNITS_SEEN_META_PREFIX, RESUME_HINT, RESUME_HINT_KEY, RUN_WRAPPER_FILE,
-  RUN_WRAPPER_NODE, SHELL_TOOL, SOURCE_LABEL_MAX_CHARS, SUBAGENT_SOURCE_PREFIX, SYNC_INDEX_MAX_BYTES, TOOL_PREFIX_SLOT,
+  RUN_WRAPPER_AGENT, RUN_WRAPPER_NODE, SEARCH_TWIN_LINE, SEARCH_WRAPPER_FILE, SUBAGENT_HANDLE_LINE, ECHO_MAX_BYTES, SHELL_TOOL, SOURCE_LABEL_MAX_CHARS, SUBAGENT_SOURCE_PREFIX, SYNC_INDEX_MAX_BYTES, TOOL_PREFIX_SLOT,
   USER_DENY_REASON_PREFIX,
   SUBAGENT_RUN_DENY, WORKSPACE_FOLDER_FLAG, PROJECTS_DIR_NAME, CLAUDE_TOOL_RESULTS_DIR_NAME, PERSISTED_OUTPUT_MAX_BYTES,
 } from "../contracts/constants.ts";
@@ -19,7 +19,7 @@ import type {
 import { getAdapter, hasRecall, hasReplace } from "../../adapters/table.ts";
 import { decide } from "../policy/decide.ts";
 import { isOwnFile } from "../policy/own-file.ts";
-import { isSubagentCall, pickSubagentCase, toolSetForAgentType } from "../policy/subagent.ts";
+import { isSubagentCall, pickSubagentCase, toolSetForAgentType, type ToolSetSources } from "../policy/subagent.ts";
 import { readUserDeny } from "../policy/user-deny.ts";
 import { resolveProject } from "../project/resolve.ts";
 import { claudeDirOf, homeDirOf } from "../project/config-dir.ts";
@@ -40,7 +40,7 @@ import { askedWords } from "./handle-query.ts";
 import { answerDecisions, askOptionLabels, optionEchoDecision, type DecisionPart } from "./decision.ts";
 import { shouldHint } from "./throttle.ts";
 import { CtxError } from "../contracts/errors.ts";
-import { failureOutput, fault, logHookError, nodeTooOld } from "./fallback.ts";
+import { allowOutput, failureOutput, fault, logHookError, nodeTooOld } from "./fallback.ts";
 
 export { failureOutput, logHookError } from "./fallback.ts"; // D-HNE-GUARD-1: the entry's last-resort catch
 export { readStdin, writeOut } from "./io.ts"; // D-M7-HP-1: entry I/O without process.stdin/stdout streams
@@ -69,12 +69,23 @@ export async function handleHook(agent: AgentId, raw: unknown, env: NodeJS.Proce
   }
   const row = getAdapter(agent);
   // D-HNE-GUARD-1: every failure below ends in failureOutput (exit 0, this host's shape, tool table only) and a log line.
-  const fail = (stage: string, err: unknown, line?: string): HookOutput => {
+  const report = (stage: string, err: unknown, line?: string): void => {
     logHookError(env, agent, stage, err);
     process.stderr.write(line ?? "hooks: " + stage + " failed: " + message(err) + "\n");
+  };
+  const fail = (stage: string, err: unknown, line?: string): HookOutput => {
+    report(stage, err, line);
     return failureOutput(agent, raw, err);
   };
-  if (nodeTooOld(process.version)) return fail("node", new CtxError("NODE_TOO_OLD", { v: process.version }));
+  if (nodeTooOld(process.version)) {
+    // D-1370-OLDNODE-ALLOW-1 (#1370): the MCP server runs on this same node and is degraded (PRD §13: ctx_doctor only), so a
+    // redirect to ctx_execute would block the host. Allow, and keep the stderr and log lines (D5). An in-process host
+    // (Pi, OMP, OpenCode) registers its ctx_* tools itself, so its redirect target exists and the D-HNE-GUARD-1 deny stays.
+    const err = new CtxError("NODE_TOO_OLD", { v: process.version });
+    if (row.installMode === "in-process") return fail("node", err);
+    report("node", err);
+    return allowOutput(agent);
+  }
   let ev: CanonicalHookEvent;
   try {
     fault(env, "decode");
@@ -90,7 +101,7 @@ export async function handleHook(agent: AgentId, raw: unknown, env: NodeJS.Proce
     // D-HA-PI-PROJECT-1: on pi the entry puts ctx.cwd into the payload, so ev.cwd is the pi:ctx.cwd source.
     // D-HF-VSCODE-PROJECT-1: a VS Code hook has no launch args; its workspace folder is the payload cwd.
     const argv = agent === "vscode" ? [WORKSPACE_FOLDER_FLAG, ev.cwd] : process.argv;
-    project = resolveProject(agent, { env, argv, cwd: ev.cwd, piCwd: agent === "pi" ? ev.cwd : undefined }); // step 3
+    project = resolveProject(agent, { env, argv, cwd: ev.cwd, piCwd: getAdapter(agent).projectSource === "pi:ctx.cwd" ? ev.cwd : undefined }); // step 3 (pi, omp: ADR-0026)
   } catch (err) {
     // D-FU-PS-1 keeps its one stderr line (code first); the decision part is new.
     return fail("project", err, "hooks: no project: " + String((err as { code?: unknown }).code ?? "ERROR") + " " + message(err) + "\n"); // D-HNE-GUARD-1 supersedes D-FU-PS-1: a flooding call is denied, the rest allowed
@@ -320,6 +331,13 @@ function askDetached(ev: CanonicalHookEvent, project: ProjectContext, tool: Tool
     });
 }
 
+// ADR-0016 l.23 (#1348): an in-process host hands the agent's tool set on the event; it is the manifest source.
+function toolSetSources(ev: CanonicalHookEvent, project: ProjectContext, env: NodeJS.ProcessEnv): ToolSetSources {
+  const src: ToolSetSources = { projectDir: project.worktree, env };
+  if (ev.agentTools !== undefined) src.manifestTools = ev.agentTools;
+  return src;
+}
+
 // ---------- §4.5 PreToolUse ----------
 
 async function preToolUse(ev: CanonicalHookEvent, row: AdapterRow, project: ProjectContext, env: NodeJS.ProcessEnv): Promise<Decision> {
@@ -331,7 +349,7 @@ async function preToolUse(ev: CanonicalHookEvent, row: AdapterRow, project: Proj
     // D-SUB-NOCTX-1 (#1311): a deny names only tools the caller has. A caller without ctx_* tools runs the call:
     // a known tool set without them, or a named agent type no source defines on a row that replaces afterwards
     // (PostToolUse case C keeps a large output out). A call with no agent type inherits the session tools (case A).
-    const set = toolSetForAgentType(ev, { projectDir: project.worktree, env });
+    const set = toolSetForAgentType(ev, toolSetSources(ev, project, env));
     const subCase = pickSubagentCase(ev, set);
     const tool = ev.tool;
     const runs = set !== null || ((ev.agentType ?? "") !== "" && hasReplace(row));
@@ -444,7 +462,7 @@ async function postToolUse(ev: CanonicalHookEvent, row: AdapterRow, project: Pro
 function ownRead(ev: CanonicalHookEvent, tool: ToolCall, env: NodeJS.ProcessEnv): boolean {
   if (!RANGE_READ_TOOLS.includes(tool.canonicalName)) return false;
   const p = READ_PATH_KEYS.map((k) => tool.input[k]).find((v): v is string => typeof v === "string" && v !== "");
-  return p !== undefined && isOwnFile(ev.agent, resolve(ev.cwd, p), env);
+  return p !== undefined && isOwnFile(ev.agent, ev.cwd, p, env);
 }
 
 async function postReplace(ev: CanonicalHookEvent, row: AdapterRow, project: ProjectContext, env: NodeJS.ProcessEnv,
@@ -458,17 +476,29 @@ async function postReplace(ev: CanonicalHookEvent, row: AdapterRow, project: Pro
   // ADR-0001: one path per row, no runtime fallback. A row with no replace channel gets no replace decision on
   // any path, the subagent one too (D-STATS-RET-2): its encoder drops it, so the model gets the whole output.
   if (!hasReplace(row)) return ALLOW;
+  // D-CC-POINTER-1 (#1342, ADR-0016 line 16): every caller keeps the same replace budget; case A is no passthrough.
+  // The pointer names only what the caller can call: ctx_search for the main session and case A, the plain
+  // SUBAGENT_HANDLE_LINE for case B and C. D-CC-POINTER-4: the subagent label carries the call id, as mainLabel does.
   let label: string;
+  let caller: Caller = { ctx: true, shell: true, read: false };
   if (isSubagentCall(ev)) {
-    const subCase = pickSubagentCase(ev, toolSetForAgentType(ev, { projectDir: project.worktree, env }));
-    if (subCase === "A") return ALLOW;
-    label = SUBAGENT_SOURCE_PREFIX + tool.canonicalName + ":" + String(ev.turn ?? 0);
+    // #1348: toolSetSources carries the OpenCode 2.x agentTools next to the project dir and env.
+    const set = toolSetForAgentType(ev, toolSetSources(ev, project, env));
+    const subCase = pickSubagentCase(ev, set);
+    const has = (names: readonly string[]): boolean => set !== null && names.some((n) => set.includes(n));
+    caller = { ctx: subCase === "A", shell: has(row.nativeTools.shell),
+      read: RANGE_READ_TOOLS.includes(tool.canonicalName) && has(row.nativeTools.read ?? []) };
+    // D-1382-NO-ROUTE-1 (#1382, ADR-0016 lines 11 and 16): a known tool set with no ctx tool, no shell and no ranged
+    // Read has no call that opens the handle, so the replace is a dead end: the output reaches it whole.
+    if (set !== null && !caller.ctx && !caller.shell && !caller.read) return ALLOW;
+    label = SUBAGENT_SOURCE_PREFIX + tool.canonicalName + ":" + (tool.callId ?? String(ev.turn ?? 0));
   } else {
     label = mainLabel(tool, ev);
   }
   // D-M7-RR-3: no description -> the command text, file path, pattern or URL, never an empty query.
-  const intent = [tool.input.description, tool.input.command, tool.input.file_path, tool.input.pattern, tool.input.url]
-    .map(str).find((v) => v.trim() !== "") ?? "";
+  // D-CC-POINTER-2 (#1358): an MCP input has none of them, so the tool name is the last field.
+  const intent = [tool.input.description, tool.input.command, tool.input.file_path, tool.input.pattern, tool.input.url, tool.name]
+    .map(str).find((v) => v.trim() !== "") ?? tool.canonicalName;
   // One chunk pass for both forms (D-M7-FT-2): the stored chunks and the selected chunks are the same
   // array, so the in-memory selection equals selectChunks over the stored source without reading it back.
   const chunks = chunkText(text, "text", REPLACE_CHUNK_BYTES); // D-M7-SV-1: small chunks, line-aligned cuts
@@ -493,14 +523,28 @@ async function postReplace(ev: CanonicalHookEvent, row: AdapterRow, project: Pro
   // within the same budget, plus the handle. No shape or no named rare unit -> the BM25 pick below, unchanged.
   // D-CR3-HANDLE-1: one handle line replaces the more line and counts inside the budget. The budget per
   // replace is the size bound of D-CR3-HANDLE-1 (REPLACE_RETURN_BYTES of selection + the more line with the full
-  // label); the selection gets that budget minus the handle line, so a replace never grows.
+  // label); the selection gets that budget minus the handle line, so the selection plus the handle line never grows.
+  // D-CC-POINTER-2: on claude-code the search.mjs twin comes on top of that bound (two absolute paths, about 120-250 B).
   // D-HA-GEMINI-HINT-1: a second query of the prompt words the output holds, so the call returns the asked line.
-  const handleLine = REPLACE_HANDLE_LINE(intent, handle, result.bytes, row.toolNamePrefix, askedWords(intent, prompt, text));
+  const handleLine = caller.ctx
+    ? REPLACE_HANDLE_LINE(intent, handle, result.bytes, row.toolNamePrefix, askedWords(intent, prompt, text))
+    : SUBAGENT_HANDLE_LINE(handle, result.bytes, caller.read);
   const budget = replaceBudget(handleLine, moreLine(intent, label));
+  // D-CC-POINTER-2 (#1358): on the claude-code row a caller with a shell also gets the MCP-free search.mjs call,
+  // which works when the MCP server is not connected. It sits after the budget: the selection is unchanged.
+  const pointer = handleLine + (caller.shell && ev.agent === RUN_WRAPPER_AGENT ? searchTwin(handle, intent, project) : "");
   const digest = shapeDigest(text, rankQuery ?? intent, SHAPE_RETURN_BYTES); // D-M2-JSON-1
-  if (digest !== null) return { kind: "replace", output: replaceOutput(digest, handleLine) };
+  if (digest !== null) return { kind: "replace", output: replaceOutput(digest, pointer) };
   const selected = selectChunksInMemory(chunks, intent, budget, label, rankQuery);
-  return { kind: "replace", output: selected.more !== null ? replaceOutput(selected.text, handleLine) : selected.text };
+  return { kind: "replace", output: selected.more !== null ? replaceOutput(selected.text, pointer) : selected.text };
+}
+
+type Caller = { ctx: boolean; shell: boolean; read: boolean };
+
+// search.mjs sits next to hook.mjs (D-M3-arch-3, as caseB's run.mjs). A long intent is not echoed (D-NO-LOSSY-CUT-2).
+function searchTwin(handle: string, intent: string, project: ProjectContext): string {
+  const terms = Buffer.byteLength(intent, "utf8") > ECHO_MAX_BYTES ? "" : intent;
+  return SEARCH_TWIN_LINE(join(dirname(process.argv[1] ?? ""), SEARCH_WRAPPER_FILE), handle, terms, project.worktree);
 }
 
 // D-R41-READ-OFFSET-1 (#1314): a read-like tool called with offset, limit or view_range is a bounded window.
